@@ -1,0 +1,15 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CopyBuiltFile",
+            "type": "shell",
+            "command": "copy ${workspaceFolder}\\build\\insertomatic-pico.uf2 E:",
+            "options": {
+                "statusbar": {
+                    "label" : "$(testing-run-icon) Program Pi Pico"
+                }
+            }
+        }
+    ]
+}
