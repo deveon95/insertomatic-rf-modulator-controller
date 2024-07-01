@@ -165,14 +165,27 @@ int main() {
 		gpio_set_dir(I2C_SDA_PIN_6, GPIO_IN);
 		gpio_put_all_sda_pins(0);
 
-		uint8_t data[6][4] = {
+		uint8_t data[6][4];
+        /* = {
             {0x80, 0x10, 0x5D, 0x74}, // 21
             {0x80, 0x10, 0x5E, 0x74}, // 23
             {0x80, 0x10, 0x5F, 0x74}, // 25
             {0x80, 0x10, 0x60, 0x74}, // 27
             {0x80, 0x10, 0x61, 0x74}, // 29
             {0x80, 0x10, 0x62, 0x74}  // 31
-        };
+        };*/
+
+        uint8_t standard = 2;
+        bool testpattern = true;
+        uint8_t channels[] = {21, 23, 25, 27, 29, 31};
+        for (uint8_t i = 0; i < 6; i++) {
+            data[i][0] = 0x80;
+            data[i][1] = standard << 3;
+            uint16_t desired_frequency = (channels[i] - 21) * 4 * 8 + 1885;
+            uint16_t desired_n = (desired_frequency << 2) & 0x3ffc;
+            data[i][2] = (desired_n >> 8) | (testpattern << 6);
+            data[i][3] = desired_n & 0xff;
+        }
 
 		while (true) {
 			i2c_bitbang_write(I2C_ADDRESS, data, 4);
