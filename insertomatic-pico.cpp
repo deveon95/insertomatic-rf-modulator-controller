@@ -143,16 +143,50 @@ void i2c_bitbang_write(uint8_t address, uint8_t data[][4], size_t length) {
 
 LCDdisplay myLCD(5,4,3,2,1,0,24,2); // DB4, DB5, DB6, DB7, RS, E, character_width, no_of_lines
 
+void printChannelNumbers(uint8_t * channels)
+{
+    for (int i = 0; i < NO_OF_CHANNELS; i++)
+    {
+        myLCD.write(' ');
+        myLCD.write((channels[i] & 0x80) ? 'S' : 'C');
+        myLCD.write((channels[i] & 0x7f) / 10 % 10 + '0');
+        myLCD.write((channels[i] & 0x7f) % 10 + '0');
+    }
+}
+
+void programModulators(uint8_t * channels, uint8_t standard, bool testpattern)
+{
+    // Modulator data array
+    uint8_t data[NO_OF_CHANNELS][4];
+    /* Example array data
+        = {
+        {0x80, 0x10, 0x5D, 0x74}, // 21
+        {0x80, 0x10, 0x5E, 0x74}, // 23
+        {0x80, 0x10, 0x5F, 0x74}, // 25
+        {0x80, 0x10, 0x60, 0x74}, // 27
+        {0x80, 0x10, 0x61, 0x74}, // 29
+        {0x80, 0x10, 0x62, 0x74}  // 31
+    };*/
+
+    for (uint8_t i = 0; i < NO_OF_CHANNELS; i++) {
+        data[i][0] = 0x80;
+        data[i][1] = standard << 3;
+        uint16_t desired_frequency = (channels[i] - 21) * 4 * 8 + 1885;
+        uint16_t desired_n = (desired_frequency << 2) & 0x3ffc;
+        data[i][2] = (desired_n >> 8) | (testpattern << 6);
+        data[i][3] = desired_n & 0xff;
+    }
+    
+    i2c_bitbang_write(I2C_ADDRESS, data, 4);
+}
+
 int main() {
+    sleep_ms(100);
 	myLCD.init();
     myLCD.clear();
     myLCD.print("Insertomatic 6000 ------");
     sleep_ms(2500);
-    myLCD.goto_pos(0,0);
-    myLCD.print(" P1  P2  P3  P4  P5  P6 ");
-    myLCD.goto_pos(0,1);
-    myLCD.print(" C21 C23 C25 C27 C29 C31");
-    sleep_ms(2500);
+    //sleep_ms(2500);
     //myLCD.goto_pos(0,0);
     //myLCD.print("P1 [Station name]       ");
     //myLCD.goto_pos(0,1);
@@ -182,31 +216,17 @@ int main() {
     gpio_set_dir(I2C_SDA_PIN_6, GPIO_IN);
     gpio_put_all_sda_pins(0);
 
-    // Modulator data array
-    uint8_t data[NO_OF_CHANNELS][4];
-    /* Example array data
-        = {
-        {0x80, 0x10, 0x5D, 0x74}, // 21
-        {0x80, 0x10, 0x5E, 0x74}, // 23
-        {0x80, 0x10, 0x5F, 0x74}, // 25
-        {0x80, 0x10, 0x60, 0x74}, // 27
-        {0x80, 0x10, 0x61, 0x74}, // 29
-        {0x80, 0x10, 0x62, 0x74}  // 31
-    };*/
+    
 
     uint8_t standard = 2;
     bool testpattern = true;
     uint8_t channels[] = {21, 23, 25, 27, 29, 31};
-    for (uint8_t i = 0; i < NO_OF_CHANNELS; i++) {
-        data[i][0] = 0x80;
-        data[i][1] = standard << 3;
-        uint16_t desired_frequency = (channels[i] - 21) * 4 * 8 + 1885;
-        uint16_t desired_n = (desired_frequency << 2) & 0x3ffc;
-        data[i][2] = (desired_n >> 8) | (testpattern << 6);
-        data[i][3] = desired_n & 0xff;
-    }
+    programModulators(channels, standard, testpattern);
 
-    i2c_bitbang_write(I2C_ADDRESS, data, 4);
+    myLCD.goto_pos(0,0);
+    myLCD.print(" P1  P2  P3  P4  P5  P6 ");
+    myLCD.goto_pos(0,1);
+    printChannelNumbers(channels);
 
     uint32_t lastms = 0;
     uint32_t function = FN_IDLE;
