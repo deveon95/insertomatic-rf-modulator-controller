@@ -230,6 +230,7 @@ int main() {
 
     uint32_t lastms = 0;
     uint32_t function = FN_IDLE;
+    uint32_t channelSelect = 0;
     bool buttonFLast = 1;
     bool buttonULast = 1;
     bool buttonDLast = 1;
@@ -251,15 +252,53 @@ int main() {
                 {
                     case FN_IDLE:
                     function = FN_CHANNELS;
+                    myLCD.cursor_on();
+                    myLCD.goto_pos(3, 1);
                     break;
 
                     case FN_CHANNELS:
-                    function = FN_IDLE;
+                    if (channelSelect < 5)
+                    {
+                        channelSelect++;
+                        myLCD.goto_pos(3 + channelSelect * 4, 1);
+                    }
+                    else
+                    {
+                        channelSelect = 0;
+                        myLCD.cursor_off();
+                        programModulators(channels, standard, testpattern);
+                        function = FN_IDLE;
+                    }
                     break;
                 }
-                myLCD.goto_pos(0,0);
-                myLCD.write('0' + function);
             }
+
+            if (!buttonUState && buttonULast)
+            {
+                switch (function)
+                {
+                    case FN_CHANNELS:
+                    channels[channelSelect]++;
+                    myLCD.goto_pos(0,1);
+                    printChannelNumbers(channels);
+                    myLCD.goto_pos(3 + channelSelect * 4, 1);
+                    break;
+                }
+            }
+
+            if (!buttonDState && buttonDLast)
+            {
+                switch (function)
+                {
+                    case FN_CHANNELS:
+                    channels[channelSelect]--;
+                    myLCD.goto_pos(0,1);
+                    printChannelNumbers(channels);
+                    myLCD.goto_pos(3 + channelSelect * 4, 1);
+                    break;
+                }
+            }
+
             buttonFLast = buttonFState;
             buttonULast = buttonUState;
             buttonDLast = buttonDState;
