@@ -154,6 +154,36 @@ void printChannelNumbers(uint8_t * channels)
     }
 }
 
+void printSystemTestEnable(uint8_t standard, bool testpattern)
+{
+    myLCD.print(" System: ");
+    switch (standard)
+    {
+        case 0:
+        myLCD.print(" M ");
+        break;
+
+        case 1:
+        myLCD.print("B/G");
+        break;
+        
+        case 2:
+        myLCD.print(" I ");
+        break;
+
+        case 3:
+        myLCD.print("D/K");
+        break;
+        
+        default:
+        myLCD.print(" L ");
+        break;        
+    }
+
+    myLCD.print("  Test: ");
+    myLCD.print(testpattern ? "On  " : "Off ");
+}
+
 void programModulators(uint8_t * channels, uint8_t standard, bool testpattern)
 {
     // Modulator data array
@@ -168,8 +198,14 @@ void programModulators(uint8_t * channels, uint8_t standard, bool testpattern)
         {0x80, 0x10, 0x62, 0x74}  // 31
     };*/
 
+    bool secam = (standard >> 2) & 1;
+    if (secam)
+    {
+        standard = 3;
+    }
+
     for (uint8_t i = 0; i < NO_OF_CHANNELS; i++) {
-        data[i][0] = 0x80;
+        data[i][0] = 0x80 | secam;
         data[i][1] = standard << 3;
         uint16_t desired_frequency = (channels[i] - 21) * 4 * 8 + 1885;
         uint16_t desired_n = (desired_frequency << 2) & 0x3ffc;
@@ -252,6 +288,8 @@ int main() {
                 {
                     case FN_IDLE:
                     function = FN_CHANNELS;
+                    myLCD.goto_pos(0,1);
+                    printChannelNumbers(channels);
                     myLCD.cursor_on();
                     myLCD.goto_pos(3, 1);
                     break;
@@ -265,10 +303,26 @@ int main() {
                     else
                     {
                         channelSelect = 0;
-                        myLCD.cursor_off();
-                        programModulators(channels, standard, testpattern);
-                        function = FN_IDLE;
+                        function = FN_STANDARD;
+                        myLCD.goto_pos(0,1);
+                        printSystemTestEnable(standard, testpattern);
+                        myLCD.goto_pos(10,1);
                     }
+                    break;
+
+                    case FN_STANDARD:
+                    function = FN_TESTPATTERN;
+                    myLCD.goto_pos(20,1);
+                    break;
+
+                    case FN_TESTPATTERN:
+                    programModulators(channels, standard, testpattern);
+                    function = FN_IDLE;
+                    myLCD.cursor_off();
+                    myLCD.goto_pos(0,0);
+                    myLCD.print("Modulator settings      ");
+                    myLCD.goto_pos(0,1);
+                    myLCD.print("updated                 ");
                     break;
                 }
             }
@@ -283,6 +337,20 @@ int main() {
                     printChannelNumbers(channels);
                     myLCD.goto_pos(3 + channelSelect * 4, 1);
                     break;
+
+                    case FN_STANDARD:
+                    standard = (standard < 4) ? standard + 1 : 0;
+                    myLCD.goto_pos(0,1);
+                    printSystemTestEnable(standard, testpattern);
+                    myLCD.goto_pos(10,1);
+                    break;
+
+                    case FN_TESTPATTERN:
+                    testpattern ^= 1;
+                    myLCD.goto_pos(0,1);
+                    printSystemTestEnable(standard, testpattern);
+                    myLCD.goto_pos(20,1);
+                    break;
                 }
             }
 
@@ -295,6 +363,20 @@ int main() {
                     myLCD.goto_pos(0,1);
                     printChannelNumbers(channels);
                     myLCD.goto_pos(3 + channelSelect * 4, 1);
+                    break;
+
+                    case FN_STANDARD:
+                    standard = (standard == 0) ? 4 : standard - 1;
+                    myLCD.goto_pos(0,1);
+                    printSystemTestEnable(standard, testpattern);
+                    myLCD.goto_pos(10,1);
+                    break;
+
+                    case FN_TESTPATTERN:
+                    testpattern ^= 1;
+                    myLCD.goto_pos(0,1);
+                    printSystemTestEnable(standard, testpattern);
+                    myLCD.goto_pos(20,1);
                     break;
                 }
             }
