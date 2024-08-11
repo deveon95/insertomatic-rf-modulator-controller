@@ -205,15 +205,124 @@ void programModulators(uint8_t * channels, uint8_t standard, bool testpattern)
     }
 
     for (uint8_t i = 0; i < NO_OF_CHANNELS; i++) {
+        uint8_t channelNumber = channels[i] & 0x7f;
+        uint8_t channelBand = (channels[i] & 0x80) >> 7;
+        uint8_t divider = 0;
+        uint16_t desired_frequency = 0;
+        
+        // Calculate the modulator frequency, desired_frequency will be frequency * 4 * (2 ^ divider).
+        // For each section of the band, the base value of desired_frequency has been calculated by hand
+        // e.g. C21 (471.25MHz) is 471.25 * 4 = 1885.
+        // The channel number relative to that of the base value is then multiplied by the
+        // channel spacing * 4 * (2 ^ divider) to get desired_frequency.
+        if (channelBand == 0 && channelNumber >= 21)
+        {
+            divider = 0;
+            desired_frequency = (channelNumber - 21) * 8 * 4 + 1885;
+        }
+        else if (channelBand == 1 && channelNumber >= 36) 
+        {
+            divider = 0;
+            desired_frequency = (channelNumber - 36) * 8 * 4 + 1693;
+        }
+        else if (channelBand == 1 && channelNumber >= 21)
+        {
+            divider = 1;
+            desired_frequency = (channelNumber - 21) * 8 * 4 * 2 + 2426;
+        }
+        else if (channelBand == 1 && channelNumber >= 11)
+        {
+            divider = 1;
+            desired_frequency = (channelNumber - 11) * 7 * 4 * 2 + 1850;
+        }
+        else if (channelBand == 0 && channelNumber >= 10)
+        {
+            divider = 1;
+            desired_frequency = (channelNumber - 10) * 7 * 4 * 2 + 1682;
+        }
+        else if (channelBand == 0 && channelNumber >= 5)
+        {
+            divider = 2;
+            desired_frequency = (channelNumber - 5) * 7 * 4 * 4 + 2804;
+        }
+        else
+        {
+            divider = 2;
+            desired_frequency = (channelNumber - 1) * 7 * 4 * 4 + 1684;
+        }
+
+        uint16_t desired_n = ((desired_frequency << 2) & 0x3ffc) | divider;
+
         data[i][0] = 0x80 | secam;
         data[i][1] = standard << 3;
-        uint16_t desired_frequency = (channels[i] - 21) * 4 * 8 + 1885;
-        uint16_t desired_n = (desired_frequency << 2) & 0x3ffc;
         data[i][2] = (desired_n >> 8) | (testpattern << 6);
         data[i][3] = desired_n & 0xff;
     }
     
     i2c_bitbang_write(I2C_ADDRESS, data, 4);
+}
+
+void decrementChannel(uint8_t * channel)
+{
+    uint8_t channelNumber = *channel & 0x7f;
+    uint8_t channelBand = (*channel & 0x80) >> 7;
+    if (channelBand == 0 && channelNumber == 21)
+    {
+        channelBand = 1;
+        channelNumber = 41;
+    }
+    else if (channelBand == 1 && channelNumber == 11)
+    {
+        channelBand = 0;
+        channelNumber = 12;
+    }
+    else if (channelBand == 0 && channelNumber == 5)
+    {
+        channelBand = 1;
+        channelNumber = 10;
+    }
+    else if (channelBand == 1 && channelNumber == 1)
+    {
+        channelBand = 0;
+        channelNumber = 90;
+    }
+    else
+    {
+        channelNumber--;
+    }
+    *channel = (channelBand << 7) | channelNumber;
+}
+
+void incrementChannel(uint8_t * channel)
+{
+    uint8_t channelNumber = *channel & 0x7f;
+    uint8_t channelBand = (*channel & 0x80) >> 7;
+    if (channelBand == 1 && channelNumber == 10)
+    {
+        channelBand = 0;
+        channelNumber = 5;
+    }
+    else if (channelBand == 0 && channelNumber == 12)
+    {
+        channelBand = 1;
+        channelNumber = 11;
+    }
+    else if (channelBand == 1 && channelNumber == 41)
+    {
+        channelBand = 0;
+        channelNumber = 21;
+    }
+    else if (channelBand == 0 && channelNumber == 90)
+    {
+        channelBand = 1;
+        channelNumber = 1;
+    }
+    else
+    {
+        channelNumber++;
+    }
+
+    *channel = (channelBand << 7) | channelNumber;
 }
 
 int main() {
@@ -332,7 +441,7 @@ int main() {
                 switch (function)
                 {
                     case FN_CHANNELS:
-                    channels[channelSelect]++;
+                    incrementChannel(&channels[channelSelect]);
                     myLCD.goto_pos(0,1);
                     printChannelNumbers(channels);
                     myLCD.goto_pos(3 + channelSelect * 4, 1);
@@ -359,7 +468,7 @@ int main() {
                 switch (function)
                 {
                     case FN_CHANNELS:
-                    channels[channelSelect]--;
+                    decrementChannel(&channels[channelSelect]);
                     myLCD.goto_pos(0,1);
                     printChannelNumbers(channels);
                     myLCD.goto_pos(3 + channelSelect * 4, 1);
