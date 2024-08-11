@@ -25,9 +25,14 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 #define I2C_DELAY 5 // Delay in microseconds for timing
 
 #define FN_IDLE 0
-#define FN_CHANNELS 1
-#define FN_STANDARD 2
-#define FN_TESTPATTERN 3
+#define FN_TOP_MENU 1
+#define FN_CHANNELS 2
+#define FN_STANDARD 3
+#define FN_TESTPATTERN 4
+#define FN_MOD_UPDATED 5
+#define FN_SWITCH_BANK 6
+
+#define TOP_MENU_ITEMS 4
 
 // Create flash definitions
 // Flash for settings storage will be the last sector (4096 bytes)
@@ -333,6 +338,20 @@ void incrementChannel(uint8_t * channel)
     *channel = (channelBand << 7) | channelNumber;
 }
 
+void topMenuPrint(uint32_t menuItem)
+{
+    myLCD.goto_pos(0,0);
+    myLCD.print(" Insertomatic 6000 Menu ");
+    myLCD.goto_pos(0,1);
+    switch (menuItem)
+    {
+        case 0: myLCD.print("<         Exit         >"); break;
+        case 1: myLCD.print("<Set Modulator Channels>"); break;
+        case 2: myLCD.print("< Switch Channel Bank  >"); break;
+        case 3: myLCD.print("<    Save to FLASH     >"); break;
+    }
+}
+
 int main() {
     sleep_ms(100);
 	myLCD.init();
@@ -383,7 +402,7 @@ int main() {
 
     uint32_t lastms = 0;
     uint32_t function = FN_IDLE;
-    uint32_t channelSelect = 0;
+    uint32_t menuSelect = 0;
     bool buttonFLast = 1;
     bool buttonULast = 1;
     bool buttonDLast = 1;
@@ -391,6 +410,17 @@ int main() {
     // Main loop
     while (true)
     {
+        // Check UARTs
+
+        if (function == FN_IDLE)
+        {
+            // Display idle LCD stuff
+            myLCD.goto_pos(0,0);
+            myLCD.print("   Insertomatic 6000    ");
+            myLCD.goto_pos(0,1);
+            printChannelNumbers(channels);
+        }
+
         if (to_ms_since_boot(get_absolute_time()) > lastms + BUTTON_INTERVAL)
         {
             lastms = to_ms_since_boot(get_absolute_time());
@@ -404,22 +434,36 @@ int main() {
                 switch (function)
                 {
                     case FN_IDLE:
-                    function = FN_CHANNELS;
-                    myLCD.goto_pos(0,1);
-                    printChannelNumbers(channels);
-                    myLCD.cursor_on();
-                    myLCD.goto_pos(3, 1);
+                    function = FN_TOP_MENU;
+                    menuSelect = 0;
+                    topMenuPrint(menuSelect);
+                    break;
+
+                    case FN_TOP_MENU:
+                    if (menuSelect == 0)
+                    {
+                        function = FN_IDLE;
+                    }
+                    else if (menuSelect == 1)
+                    {
+                        function = FN_CHANNELS;
+                        menuSelect = 0;
+                        myLCD.goto_pos(0,1);
+                        printChannelNumbers(channels);
+                        myLCD.cursor_on();
+                        myLCD.goto_pos(3, 1);
+                    }
                     break;
 
                     case FN_CHANNELS:
-                    if (channelSelect < 5)
+                    if (menuSelect < 5)
                     {
-                        channelSelect++;
-                        myLCD.goto_pos(3 + channelSelect * 4, 1);
+                        menuSelect++;
+                        myLCD.goto_pos(3 + menuSelect * 4, 1);
                     }
                     else
                     {
-                        channelSelect = 0;
+                        menuSelect = 0;
                         function = FN_STANDARD;
                         myLCD.goto_pos(0,1);
                         printSystemTestEnable(standard, testpattern);
@@ -434,56 +478,77 @@ int main() {
 
                     case FN_TESTPATTERN:
                     programModulators(channels, standard, testpattern);
-                    function = FN_IDLE;
+                    function = FN_MOD_UPDATED;
+                    menuSelect = 0;
                     myLCD.cursor_off();
                     myLCD.goto_pos(0,0);
-                    myLCD.print("Modulator settings      ");
+                    myLCD.print("   Modulator settings   ");
                     myLCD.goto_pos(0,1);
-                    myLCD.print("updated                 ");
+                    myLCD.print("        updated         ");
+                    break;
+
+                    case FN_MOD_UPDATED:
+                    function = FN_TOP_MENU;
+                    topMenuPrint(menuSelect);
                     break;
                 }
             }
 
-            if (!buttonUState && buttonULast)
+            if (!buttonUState && buttonULast || !buttonDState && buttonDLast)
             {
                 switch (function)
                 {
+                    case FN_TOP_MENU:
+                    if (!buttonUState && buttonULast)
+                    {
+                        // If it's the up button...
+                        if (menuSelect < TOP_MENU_ITEMS - 1)
+                        {
+                            menuSelect++;
+                        }
+                        else
+                        {
+                            menuSelect = 0;
+                        }
+                    }
+                    else
+                    {
+                        // If it's the down button...
+                        if (menuSelect > 0)
+                        {
+                            menuSelect--;
+                        }
+                        else
+                        {
+                            menuSelect = TOP_MENU_ITEMS - 1;
+                        }
+                    }
+                    topMenuPrint(menuSelect);
+                    break;
+
                     case FN_CHANNELS:
-                    incrementChannel(&channels[channelSelect]);
+                    if (!buttonUState && buttonULast)
+                    {
+                        incrementChannel(&channels[menuSelect]);
+                    }
+                    else
+                    {
+                        decrementChannel(&channels[menuSelect]);
+                    }
                     myLCD.goto_pos(0,1);
                     printChannelNumbers(channels);
-                    myLCD.goto_pos(3 + channelSelect * 4, 1);
+                    myLCD.goto_pos(3 + menuSelect * 4, 1);
                     break;
 
                     case FN_STANDARD:
-                    standard = (standard < 4) ? standard + 1 : 0;
-                    myLCD.goto_pos(0,1);
-                    printSystemTestEnable(standard, testpattern);
-                    myLCD.goto_pos(10,1);
-                    break;
-
-                    case FN_TESTPATTERN:
-                    testpattern ^= 1;
-                    myLCD.goto_pos(0,1);
-                    printSystemTestEnable(standard, testpattern);
-                    myLCD.goto_pos(20,1);
-                    break;
-                }
-            }
-
-            if (!buttonDState && buttonDLast)
-            {
-                switch (function)
-                {
-                    case FN_CHANNELS:
-                    decrementChannel(&channels[channelSelect]);
-                    myLCD.goto_pos(0,1);
-                    printChannelNumbers(channels);
-                    myLCD.goto_pos(3 + channelSelect * 4, 1);
-                    break;
-
-                    case FN_STANDARD:
-                    standard = (standard == 0) ? 4 : standard - 1;
+                    if (!buttonUState && buttonULast)
+                    {
+                        standard = (standard < 4) ? standard + 1 : 0;
+                    }
+                    else
+                    {
+                        standard = (standard == 0) ? 4 : standard - 1;
+                    }
                     myLCD.goto_pos(0,1);
                     printSystemTestEnable(standard, testpattern);
                     myLCD.goto_pos(10,1);
