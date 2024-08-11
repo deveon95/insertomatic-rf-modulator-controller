@@ -29,10 +29,28 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 #define FN_CHANNELS 2
 #define FN_STANDARD 3
 #define FN_TESTPATTERN 4
-#define FN_MOD_UPDATED 5
-#define FN_SWITCH_BANK 6
+#define FN_SWITCH_BANK 5
 
 #define TOP_MENU_ITEMS 4
+
+#define NO_OF_CHANNEL_BANKS 8
+
+/*
+* Flash layout
+* 0x000-0x001: always 0
+* 0x002-0x003: checksum
+* 0x004-0x005: number of writes
+* 0x006      : system selection and test enable
+* 0x00A-0x00F: bank 0
+* 0x010-0x015: bank 1
+* 0x016-0x01B: bank 2
+* 0x01C-0x021: bank 3
+* 0x022-0x027: bank 4
+* 0x028-0x02D: bank 5
+* 0x02E-0x033: bank 6
+* 0x034-0x039: bank 7
+* 0x03A-0x03F: bank 8
+*/
 
 // Create flash definitions
 // Flash for settings storage will be the last sector (4096 bytes)
@@ -356,7 +374,7 @@ int main() {
     sleep_ms(100);
 	myLCD.init();
     myLCD.clear();
-    myLCD.print("Insertomatic 6000 ------");
+    myLCD.print("   Insertomatic 6000    ");
     sleep_ms(2500);
     //sleep_ms(2500);
     //myLCD.goto_pos(0,0);
@@ -388,17 +406,27 @@ int main() {
     gpio_set_dir(I2C_SDA_PIN_6, GPIO_IN);
     gpio_put_all_sda_pins(0);
 
-    
-
+    uint8_t currentBank = 0;
     uint8_t standard = 2;
     bool testpattern = true;
-    uint8_t channels[] = {21, 23, 25, 27, 29, 31};
-    programModulators(channels, standard, testpattern);
+    uint8_t channels[NO_OF_CHANNEL_BANKS][NO_OF_CHANNELS];
+
+    // Initialise the channels array with the default channels that will be used
+    // should the saved channel numbers be unable to be read from flash
+    for (uint8_t i = 0; i < NO_OF_CHANNEL_BANKS; i++)
+    {
+        for (uint8_t j = 0; j < NO_OF_CHANNELS; j++)
+        {
+            channels[i][j] = 21 + i + j * 2;
+        }
+    }
+
+    programModulators(channels[currentBank], standard, testpattern);
 
     myLCD.goto_pos(0,0);
     myLCD.print(" P1  P2  P3  P4  P5  P6 ");
     myLCD.goto_pos(0,1);
-    printChannelNumbers(channels);
+    printChannelNumbers(channels[currentBank]);
 
     uint32_t lastms = 0;
     uint32_t function = FN_IDLE;
@@ -416,9 +444,9 @@ int main() {
         {
             // Display idle LCD stuff
             myLCD.goto_pos(0,0);
-            myLCD.print("   Insertomatic 6000    ");
+            myLCD.print(" P1  P2  P3  P4  P5  P6 ");
             myLCD.goto_pos(0,1);
-            printChannelNumbers(channels);
+            printChannelNumbers(channels[currentBank]);
         }
 
         if (to_ms_since_boot(get_absolute_time()) > lastms + BUTTON_INTERVAL)
@@ -449,9 +477,19 @@ int main() {
                         function = FN_CHANNELS;
                         menuSelect = 0;
                         myLCD.goto_pos(0,1);
-                        printChannelNumbers(channels);
+                        printChannelNumbers(channels[currentBank]);
                         myLCD.cursor_on();
                         myLCD.goto_pos(3, 1);
+                    }
+                    else if (menuSelect == 2)
+                    {
+                        function = FN_SWITCH_BANK;
+                        menuSelect = 0;
+                        myLCD.goto_pos(0,0);
+                        myLCD.print("Selected bank:         ");
+                        myLCD.write('0' + currentBank);
+                        myLCD.goto_pos(0,1);
+                        printChannelNumbers(channels[currentBank]);
                     }
                     break;
 
@@ -477,17 +515,15 @@ int main() {
                     break;
 
                     case FN_TESTPATTERN:
-                    programModulators(channels, standard, testpattern);
-                    function = FN_MOD_UPDATED;
+                    programModulators(channels[currentBank], standard, testpattern);
                     menuSelect = 0;
                     myLCD.cursor_off();
-                    myLCD.goto_pos(0,0);
-                    myLCD.print("   Modulator settings   ");
-                    myLCD.goto_pos(0,1);
-                    myLCD.print("        updated         ");
+                    function = FN_TOP_MENU;
+                    topMenuPrint(menuSelect);
                     break;
 
-                    case FN_MOD_UPDATED:
+                    case FN_SWITCH_BANK:
+                    programModulators(channels[currentBank], standard, testpattern);
                     function = FN_TOP_MENU;
                     topMenuPrint(menuSelect);
                     break;
@@ -529,14 +565,14 @@ int main() {
                     case FN_CHANNELS:
                     if (!buttonUState && buttonULast)
                     {
-                        incrementChannel(&channels[menuSelect]);
+                        incrementChannel(&channels[currentBank][menuSelect]);
                     }
                     else
                     {
-                        decrementChannel(&channels[menuSelect]);
+                        decrementChannel(&channels[currentBank][menuSelect]);
                     }
                     myLCD.goto_pos(0,1);
-                    printChannelNumbers(channels);
+                    printChannelNumbers(channels[currentBank]);
                     myLCD.goto_pos(3 + menuSelect * 4, 1);
                     break;
 
@@ -560,6 +596,37 @@ int main() {
                     printSystemTestEnable(standard, testpattern);
                     myLCD.goto_pos(20,1);
                     break;
+
+                    case FN_SWITCH_BANK:
+                    if (!buttonUState && buttonULast)
+                    {
+                        // If it's the up button...
+                        if (currentBank < NO_OF_CHANNEL_BANKS - 1)
+                        {
+                            currentBank++;
+                        }
+                        else
+                        {
+                            currentBank = 0;
+                        }
+                    }
+                    else
+                    {
+                        // If it's the down button...
+                        if (currentBank > 0)
+                        {
+                            currentBank--;
+                        }
+                        else
+                        {
+                            currentBank = NO_OF_CHANNEL_BANKS - 1;
+                        }
+                    }
+                    myLCD.goto_pos(0,0);
+                    myLCD.print("Selected bank:         ");
+                    myLCD.write('0' + currentBank);
+                    myLCD.goto_pos(0,1);
+                    printChannelNumbers(channels[currentBank]);
                 }
             }
 
