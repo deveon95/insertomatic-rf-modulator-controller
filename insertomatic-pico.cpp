@@ -37,7 +37,7 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 
 /*
 * Flash layout
-* 0x000-0x001: always 0
+* 0x000-0x001: fixed to "TX"
 * 0x002-0x003: checksum
 * 0x004-0x005: number of writes
 * 0x006      : system selection and test enable
@@ -419,6 +419,32 @@ int main() {
         {
             channels[i][j] = 21 + i + j * 2;
         }
+    }
+    
+    // Read the flash
+    if (flash_target_contents[0] == 'T' && flash_target_contents[1] == 'X')
+    {
+        // Fixed identification characters matched so load all the data
+        standard = (flash_target_contents[0x06] >> 1) & 0x07;
+        testpattern = flash_target_contents[0x06] & 1;
+        for (uint8_t i = 0; i < NO_OF_CHANNEL_BANKS; i++)
+        {
+            for (uint8_t j = 0; j < NO_OF_CHANNELS; j++)
+            {
+                channels[i][j] = flash_target_contents[0x00A + i * NO_OF_CHANNEL_BANKS + j];
+            }
+        }
+    }
+    else
+    {
+        // Fixed identification characters did not match
+        myLCD.goto_pos(0,0);
+        myLCD.print("No saved data found in  ");
+        myLCD.goto_pos(0,1);
+        myLCD.print("flash memory.   Data: ");
+        myLCD.write(flash_target_contents[0]);
+        myLCD.write(flash_target_contents[1]);
+        sleep_ms(2500);
     }
 
     programModulators(channels[currentBank], standard, testpattern);
