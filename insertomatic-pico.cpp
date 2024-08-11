@@ -3,6 +3,7 @@
 #include "lcd_display.hpp"
 
 #include "hardware/gpio.h"
+#include "hardware/flash.h"
 #include "pico/time.h"
 
 #define NO_OF_CHANNELS 6
@@ -27,6 +28,13 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 #define FN_CHANNELS 1
 #define FN_STANDARD 2
 #define FN_TESTPATTERN 3
+
+// Create flash definitions
+// Flash for settings storage will be the last sector (4096 bytes)
+#define FLASH_TARGET_OFFSET (2097152 - FLASH_SECTOR_SIZE)
+// flash_target_contents can be used as an array, which can be read from to read the contents
+// of the area of flash defined above, but this cannot be written to directly
+const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
 
 void gpio_put_all_sda_pins(bool value)
 {
