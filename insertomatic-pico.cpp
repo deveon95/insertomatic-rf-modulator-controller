@@ -30,6 +30,7 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 #define FN_STANDARD 3
 #define FN_TESTPATTERN 4
 #define FN_SWITCH_BANK 5
+#define FN_SAVED 6
 
 #define TOP_MENU_ITEMS 4
 
@@ -40,7 +41,7 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 * 0x000-0x001: fixed to "TX"
 * 0x002-0x003: checksum
 * 0x004-0x005: number of writes
-* 0x006      : system selection and test enable
+* 0x006      : bank selection, system selection and test enable
 * 0x00A-0x00F: bank 0
 * 0x010-0x015: bank 1
 * 0x016-0x01B: bank 2
@@ -55,6 +56,9 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 // Create flash definitions
 // Flash for settings storage will be the last sector (4096 bytes)
 #define FLASH_TARGET_OFFSET (2097152 - FLASH_SECTOR_SIZE)
+#define FLASH_USED_SIZE 0x040
+#define FLASH_FIXED_CHECK_CHAR_0 'T'
+#define FLASH_FIXED_CHECK_CHAR_1 'A'
 // flash_target_contents can be used as an array, which can be read from to read the contents
 // of the area of flash defined above, but this cannot be written to directly
 const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
@@ -370,6 +374,37 @@ void topMenuPrint(uint32_t menuItem)
     }
 }
 
+uint16_t saveFlash(uint8_t standard, uint8_t testpattern, uint8_t currentBank, uint8_t channels[NO_OF_CHANNEL_BANKS][NO_OF_CHANNELS])
+{
+    uint8_t flashData[FLASH_PAGE_SIZE];
+    uint16_t numberOfWrites = flash_target_contents[0x004] << 8 | flash_target_contents[0x005];
+    numberOfWrites++;
+
+    flashData[0x000] = FLASH_FIXED_CHECK_CHAR_0;
+    flashData[0x001] = FLASH_FIXED_CHECK_CHAR_1;
+    flashData[0x004] = numberOfWrites >> 8;
+    flashData[0x005] = numberOfWrites & 0xFF;
+
+    flashData[0x006] = ((currentBank & 0b111) << 4) | ((standard & 0b111) << 1) | (testpattern & 1);
+    for (uint8_t i = 0; i < NO_OF_CHANNEL_BANKS; i++)
+    {
+        for (uint8_t j = 0; j < NO_OF_CHANNELS; j++)
+        {
+             flashData[0x00A + i * NO_OF_CHANNELS + j] = channels[i][j];
+        }
+    }
+
+    // Minimum write is one page, so pad out the rest of the page with 0xFFs to leave it unwritten
+    for (uint32_t i = FLASH_USED_SIZE; i < FLASH_PAGE_SIZE - 1; i++)
+    {
+        flashData[i] = 0xFF;
+    }
+
+    flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
+    flash_range_program(FLASH_TARGET_OFFSET, flashData, FLASH_PAGE_SIZE);
+    return numberOfWrites;
+}
+
 int main() {
     sleep_ms(100);
 	myLCD.init();
@@ -422,16 +457,17 @@ int main() {
     }
     
     // Read the flash
-    if (flash_target_contents[0] == 'T' && flash_target_contents[1] == 'X')
+    if (flash_target_contents[0] == FLASH_FIXED_CHECK_CHAR_0 && flash_target_contents[1] == FLASH_FIXED_CHECK_CHAR_1)
     {
         // Fixed identification characters matched so load all the data
+        currentBank = (flash_target_contents[0x06] >> 4) & 0x07;
         standard = (flash_target_contents[0x06] >> 1) & 0x07;
         testpattern = flash_target_contents[0x06] & 1;
         for (uint8_t i = 0; i < NO_OF_CHANNEL_BANKS; i++)
         {
             for (uint8_t j = 0; j < NO_OF_CHANNELS; j++)
             {
-                channels[i][j] = flash_target_contents[0x00A + i * NO_OF_CHANNEL_BANKS + j];
+                channels[i][j] = flash_target_contents[0x00A + i * NO_OF_CHANNELS + j];
             }
         }
     }
@@ -517,6 +553,27 @@ int main() {
                         myLCD.goto_pos(0,1);
                         printChannelNumbers(channels[currentBank]);
                     }
+                    else if (menuSelect == 3)
+                    {
+                        function = FN_SAVED;
+                        myLCD.goto_pos(0,1);
+                        myLCD.print("Saving...               ");
+                        uint16_t numberOfSaves = saveFlash(standard, testpattern, currentBank, channels);
+                        myLCD.goto_pos(0,1);
+                        myLCD.print("Saved.   ");
+                        myLCD.write(numberOfSaves / 10000 + '0');
+                        myLCD.write((numberOfSaves / 1000 % 10) + '0');
+                        myLCD.write((numberOfSaves / 100 % 10) + '0');
+                        myLCD.write((numberOfSaves / 10 % 10) + '0');
+                        myLCD.write((numberOfSaves % 10) + '0');
+                    }
+                    break;
+
+                    case FN_SAVED:
+                    function = FN_TOP_MENU;
+                    menuSelect = 0;
+                    topMenuPrint(menuSelect);
+                    menuSelect = 0;
                     break;
 
                     case FN_CHANNELS:
