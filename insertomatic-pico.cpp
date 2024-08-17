@@ -6,13 +6,14 @@
 #include "hardware/flash.h"
 #include "pico/time.h"
 
-#define NO_OF_CHANNELS 6
-
+// Button GPIOs
 #define BUTTON_F 6
 #define BUTTON_U 7
 #define BUTTON_D 8
+// Button polling interval
 #define BUTTON_INTERVAL 50
 
+// Define I2C pins for the modulators
 #define I2C_SCL_PIN 16 // Define SCL pin
 #define I2C_SDA_PIN_1 10 // Define SDA pin
 #define I2C_SDA_PIN_2 11 // Define SDA pin
@@ -24,6 +25,7 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 #define I2C_ADDRESS (0xCA >> 1) // Define I2C address
 #define I2C_DELAY 5 // Delay in microseconds for timing
 
+// Menu definitions
 #define FN_IDLE 0
 #define FN_TOP_MENU 1
 #define FN_CHANNELS 2
@@ -34,6 +36,7 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 
 #define TOP_MENU_ITEMS 4
 
+#define NO_OF_CHANNELS 6
 #define NO_OF_CHANNEL_BANKS 8
 
 /*
@@ -62,6 +65,18 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 // flash_target_contents can be used as an array, which can be read from to read the contents
 // of the area of flash defined above, but this cannot be written to directly
 const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
+
+// UART configuration
+#define UART_BAUD 19200
+#define UART_CHANNELS 4
+#define FIRST_P_WITH_UART 3
+#define UART_PIN_1 18
+#define UART_PIN_2 19
+#define UART_PIN_3 20
+#define UART_PIN_4 21
+#define IDLE_SCREEN_INTERVAL 2000
+#define LCD_LINES 2
+#define LCD_COLS 24
 
 void gpio_put_all_sda_pins(bool value)
 {
@@ -176,7 +191,7 @@ void i2c_bitbang_write(uint8_t address, uint8_t data[][4], size_t length) {
 
 // End of ChatGPT generated section
 
-LCDdisplay myLCD(5,4,3,2,1,0,24,2); // DB4, DB5, DB6, DB7, RS, E, character_width, no_of_lines
+LCDdisplay myLCD(5,4,3,2,1,0,LCD_COLS,LCD_LINES); // DB4, DB5, DB6, DB7, RS, E, character_width, no_of_lines
 
 void printChannelNumbers(uint8_t * channels)
 {
@@ -406,18 +421,30 @@ uint16_t saveFlash(uint8_t standard, uint8_t testpattern, uint8_t currentBank, u
 }
 
 int main() {
+    // Define main function local variables
+    uint8_t currentBank = 0;
+    uint8_t standard = 2;
+    bool testpattern = true;
+    uint8_t channels[NO_OF_CHANNEL_BANKS][NO_OF_CHANNELS];
+    uint8_t uartLineOnes[UART_CHANNELS][LCD_COLS + 1];
+    uint8_t uartLineTwos[UART_CHANNELS][LCD_COLS + 1];
+
+    uint32_t lastms = 0;
+    uint32_t lastmsIdleScreenChange = 0;
+    uint32_t idleScreen = 0;
+    uint32_t function = FN_IDLE;
+    uint32_t menuSelect = 0;
+    bool buttonFLast = 1;
+    bool buttonULast = 1;
+    bool buttonDLast = 1;
+
     sleep_ms(100);
 	myLCD.init();
     myLCD.clear();
     myLCD.print("   Insertomatic 6000    ");
-    sleep_ms(2500);
-    //sleep_ms(2500);
-    //myLCD.goto_pos(0,0);
-    //myLCD.print("P1 [Station name]       ");
-    //myLCD.goto_pos(0,1);
-    //myLCD.print("[Now playing info]      ");
     //sleep_ms(2500);
 
+    // Initialise the GPIO
     gpio_init_mask((1 << BUTTON_F) | (1 << BUTTON_D) | (1 << BUTTON_U));
     gpio_set_pulls(BUTTON_F, true, false);
     gpio_set_pulls(BUTTON_U, true, false);
@@ -441,10 +468,32 @@ int main() {
     gpio_set_dir(I2C_SDA_PIN_6, GPIO_IN);
     gpio_put_all_sda_pins(0);
 
-    uint8_t currentBank = 0;
-    uint8_t standard = 2;
-    bool testpattern = true;
-    uint8_t channels[NO_OF_CHANNEL_BANKS][NO_OF_CHANNELS];
+    // Boot progress indicator used to make it possible to see where it freezes up if it does.
+    myLCD.goto_pos(0,1);
+    myLCD.print("A");
+
+    // Initialise the data arrays for received UART data
+    for (uint8_t i = 0; i < UART_CHANNELS; i++)
+    {
+        myLCD.goto_pos(1,1);
+        myLCD.write('0' + i);
+        for (uint8_t j = 0; j < LCD_COLS; j++)
+        {
+            myLCD.goto_pos(2,1);
+            myLCD.write('0' + (j / 10));
+            myLCD.write('0' + (j % 10));
+            uartLineOnes[i][j] = ' ';
+            uartLineTwos[i][j] = ' ';
+        }
+        uartLineOnes[i][0] = 'P';
+        uartLineOnes[i][1] = '0' + FIRST_P_WITH_UART + i;
+        uartLineOnes[i][2] = ':';
+        uartLineOnes[i][LCD_COLS] = 0;
+        uartLineTwos[i][LCD_COLS] = 0;
+    }
+
+    myLCD.goto_pos(0,1);
+    myLCD.print("B   ");
 
     // Initialise the channels array with the default channels that will be used
     // should the saved channel numbers be unable to be read from flash
@@ -455,6 +504,8 @@ int main() {
             channels[i][j] = 21 + i + j * 2;
         }
     }
+    myLCD.goto_pos(0,1);
+    myLCD.print("C");
     
     // Read the flash
     if (flash_target_contents[0] == FLASH_FIXED_CHECK_CHAR_0 && flash_target_contents[1] == FLASH_FIXED_CHECK_CHAR_1)
@@ -483,19 +534,13 @@ int main() {
         sleep_ms(2500);
     }
 
+    myLCD.goto_pos(0,1);
+    myLCD.print("D");
+
     programModulators(channels[currentBank], standard, testpattern);
 
-    myLCD.goto_pos(0,0);
-    myLCD.print(" P1  P2  P3  P4  P5  P6 ");
     myLCD.goto_pos(0,1);
-    printChannelNumbers(channels[currentBank]);
-
-    uint32_t lastms = 0;
-    uint32_t function = FN_IDLE;
-    uint32_t menuSelect = 0;
-    bool buttonFLast = 1;
-    bool buttonULast = 1;
-    bool buttonDLast = 1;
+    myLCD.print("E");
 
     // Main loop
     while (true)
@@ -505,10 +550,38 @@ int main() {
         if (function == FN_IDLE)
         {
             // Display idle LCD stuff
-            myLCD.goto_pos(0,0);
-            myLCD.print(" P1  P2  P3  P4  P5  P6 ");
-            myLCD.goto_pos(0,1);
-            printChannelNumbers(channels[currentBank]);
+            if (to_ms_since_boot(get_absolute_time()) > lastmsIdleScreenChange + IDLE_SCREEN_INTERVAL)
+            {
+                lastmsIdleScreenChange = to_ms_since_boot(get_absolute_time());
+                if (idleScreen == 0)
+                {
+                    myLCD.goto_pos(0,0);
+                    myLCD.print(" P1  P2  P3  P4  P5  P6 ");
+                    myLCD.goto_pos(0,1);
+                    printChannelNumbers(channels[currentBank]);
+                }
+                else
+                {
+                    myLCD.goto_pos(0,0);
+                    myLCD.print((char *)uartLineOnes[idleScreen - 1]);
+                    myLCD.goto_pos(0,1);
+                    myLCD.print((char *)uartLineTwos[idleScreen - 1]);
+                }
+                if (idleScreen < UART_CHANNELS)
+                {
+                    idleScreen++;
+                }
+                else
+                {
+                    idleScreen = 0;
+                }
+            }
+        }
+        else
+        {
+            // Ensures that first screen is displayed immediately upon leaving menu
+            idleScreen = 0;
+            lastmsIdleScreenChange = 0;
         }
 
         if (to_ms_since_boot(get_absolute_time()) > lastms + BUTTON_INTERVAL)
