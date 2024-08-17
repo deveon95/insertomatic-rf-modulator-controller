@@ -431,6 +431,7 @@ int main() {
     uint8_t uartLineOnes[UART_CHANNELS][LCD_COLS + 1];
     uint8_t uartLineTwos[UART_CHANNELS][LCD_COLS + 1];
     uint8_t uartChar;
+    uint8_t uartsWhichHaveReceived = 0;
     uint8_t uartCol[UART_CHANNELS];
     uint8_t uartRow[UART_CHANNELS];
 
@@ -552,6 +553,9 @@ int main() {
     // Initialise UARTs
     uint offset = pio_add_program(pio0, &uart_rx_program);
     uart_rx_program_init(pio0, 0, offset, UART_PIN_1, UART_BAUD);
+    uart_rx_program_init(pio0, 1, offset, UART_PIN_2, UART_BAUD);
+    uart_rx_program_init(pio0, 2, offset, UART_PIN_3, UART_BAUD);
+    uart_rx_program_init(pio0, 3, offset, UART_PIN_4, UART_BAUD);
 
     myLCD.goto_pos(0,1);
     myLCD.print("F");
@@ -560,32 +564,47 @@ int main() {
     while (true)
     {
         // Check UARTs
-        while (pio_sm_get_rx_fifo_level(pio0, 0))
+        for (uint8_t i = 0; i < UART_CHANNELS; i++)
         {
-            uartChar = uart_rx_program_getc(pio0, 0);
-            if (uartChar == '\n')
+            while (pio_sm_get_rx_fifo_level(pio0, i))
             {
-                uartCol[0] = 0;
-                uartRow[0] = 1;
-            }
-            else if (uartChar == '\e')
-            {
-                uartCol[0] = 4;
-                uartRow[0] = 0;
-            }
-            else
-            {
-                if (uartCol[0] < LCD_COLS)
+                // Read from PIO FIFO
+                uartChar = uart_rx_program_getc(pio0, i);
+                if (uartChar == '\n')
                 {
-                    if (uartRow[0] == 0)
+                    // Newline character sets cursor back to the start of line 2
+                    uartCol[i] = 0;
+                    uartRow[i] = 1;
+                }
+                else if (uartChar == '\0')
+                {
+                    // Null terminator sets cursor back to start of line 1 after
+                    // the channel number indicator
+                    uartCol[i] = 4;
+                    uartRow[i] = 0;
+                }
+                else
+                {
+                    // Write character only if column position is within LCD size
+                    // to avoid overwriting the next memory space if a longer string
+                    // is received via the UART
+                    if (uartCol[i] < LCD_COLS)
                     {
-                        uartLineOnes[0][uartCol[0]] = uartChar;
+                        if (uartRow[i] == 0)
+                        {
+                            uartLineOnes[i][uartCol[i]] = uartChar;
+                        }
+                        else
+                        {
+                            uartLineTwos[i][uartCol[i]] = uartChar;
+                        }
+                        // Move to next character position for next byte
+                        uartCol[i]++;
+
+                        // Set bit to indicate that the current UART has received
+                        // some data at least once since powerup
+                        uartsWhichHaveReceived |= (1 << i);
                     }
-                    else
-                    {
-                        uartLineTwos[0][uartCol[0]] = uartChar;
-                    }
-                    uartCol[0]++;
                 }
             }
         }
@@ -596,8 +615,10 @@ int main() {
             if (to_ms_since_boot(get_absolute_time()) > lastmsIdleScreenChange + IDLE_SCREEN_INTERVAL)
             {
                 lastmsIdleScreenChange = to_ms_since_boot(get_absolute_time());
+
                 if (idleScreen == 0)
                 {
+                    // First screen is all the channel numbers
                     myLCD.goto_pos(0,0);
                     myLCD.print(" P1  P2  P3  P4  P5  P6 ");
                     myLCD.goto_pos(0,1);
@@ -605,6 +626,7 @@ int main() {
                 }
                 else
                 {
+                    // Subsequent screens are the UART-received now playing info
                     myLCD.goto_pos(0,0);
                     myLCD.print((char *)uartLineOnes[idleScreen - 1]);
                     myLCD.goto_pos(0,1);
@@ -612,7 +634,22 @@ int main() {
                 }
                 if (idleScreen < UART_CHANNELS)
                 {
+                    // Increment index of currently shown screen on idle screen
                     idleScreen++;
+                    // Check whether UART data has been received for the newly selected
+                    // screen yet, if not, skip this screen.
+                    while (((uartsWhichHaveReceived >> (idleScreen - 1)) & 1) == 0)
+                    {
+                        if (idleScreen < UART_CHANNELS)
+                        {
+                            idleScreen++;
+                        }
+                        else
+                        {
+                            idleScreen = 0;
+                            break;
+                        }
+                    }
                 }
                 else
                 {
