@@ -5,6 +5,8 @@
 #include "hardware/gpio.h"
 #include "hardware/flash.h"
 #include "pico/time.h"
+#include "hardware/pio.h"
+#include "uart_rx.pio.h"
 
 // Button GPIOs
 #define BUTTON_F 6
@@ -428,6 +430,9 @@ int main() {
     uint8_t channels[NO_OF_CHANNEL_BANKS][NO_OF_CHANNELS];
     uint8_t uartLineOnes[UART_CHANNELS][LCD_COLS + 1];
     uint8_t uartLineTwos[UART_CHANNELS][LCD_COLS + 1];
+    uint8_t uartChar;
+    uint8_t uartCol[UART_CHANNELS];
+    uint8_t uartRow[UART_CHANNELS];
 
     uint32_t lastms = 0;
     uint32_t lastmsIdleScreenChange = 0;
@@ -490,6 +495,8 @@ int main() {
         uartLineOnes[i][2] = ':';
         uartLineOnes[i][LCD_COLS] = 0;
         uartLineTwos[i][LCD_COLS] = 0;
+        uartCol[i] = 4;
+        uartRow[i] = 0;
     }
 
     myLCD.goto_pos(0,1);
@@ -542,10 +549,46 @@ int main() {
     myLCD.goto_pos(0,1);
     myLCD.print("E");
 
+    // Initialise UARTs
+    uint offset = pio_add_program(pio0, &uart_rx_program);
+    uart_rx_program_init(pio0, 0, offset, UART_PIN_1, UART_BAUD);
+
+    myLCD.goto_pos(0,1);
+    myLCD.print("F");
+
     // Main loop
     while (true)
     {
         // Check UARTs
+        while (pio_sm_get_rx_fifo_level(pio0, 0))
+        {
+            uartChar = uart_rx_program_getc(pio0, 0);
+            if (uartChar == '\n')
+            {
+                uartCol[0] = 0;
+                uartRow[0] = 1;
+            }
+            else if (uartChar == '\e')
+            {
+                uartCol[0] = 4;
+                uartRow[0] = 0;
+            }
+            else
+            {
+                if (uartCol[0] < LCD_COLS)
+                {
+                    if (uartRow[0] == 0)
+                    {
+                        uartLineOnes[0][uartCol[0]] = uartChar;
+                    }
+                    else
+                    {
+                        uartLineTwos[0][uartCol[0]] = uartChar;
+                    }
+                    uartCol[0]++;
+                }
+            }
+        }
 
         if (function == FN_IDLE)
         {
