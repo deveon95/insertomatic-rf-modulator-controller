@@ -73,9 +73,9 @@ const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGE
 #define UART_CHANNELS 4
 #define FIRST_P_WITH_UART 3
 #define UART_PIN_1 18
-#define UART_PIN_2 19
-#define UART_PIN_3 20
-#define UART_PIN_4 21
+#define UART_PIN_2 20
+#define UART_PIN_3 21
+#define UART_PIN_4 19
 #define IDLE_SCREEN_INTERVAL 2000
 #define LCD_LINES 2
 #define LCD_COLS 24
@@ -580,6 +580,20 @@ int main() {
                 {
                     // Null terminator sets cursor back to start of line 1 after
                     // the channel number indicator
+                    uartCol[i] = 4;
+                    uartRow[i] = 0;
+                }
+                else if (uartChar == '\b')
+                {
+                    // Backspace character clears the 
+                    for (uint8_t j = 0; j < LCD_COLS; j++)
+                    {
+                        uartLineTwos[i][j] = ' ';
+                        if (j > 2)
+                        {
+                            uartLineOnes[i][j] = ' ';
+                        }
+                    }
                     uartCol[i] = 4;
                     uartRow[i] = 0;
                 }
