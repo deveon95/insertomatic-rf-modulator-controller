@@ -34,9 +34,9 @@ int I2C_SDA_PINS[] = {I2C_SDA_PIN_1, I2C_SDA_PIN_2, I2C_SDA_PIN_3, I2C_SDA_PIN_4
 #define FN_STANDARD 3
 #define FN_TESTPATTERN 4
 #define FN_SWITCH_BANK 5
-#define FN_SAVED 6
+#define FN_COMPLETE 6
 
-#define TOP_MENU_ITEMS 4
+#define TOP_MENU_ITEMS 6
 
 #define NO_OF_CHANNELS 6
 #define NO_OF_CHANNEL_BANKS 8
@@ -79,6 +79,8 @@ const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGE
 #define IDLE_SCREEN_INTERVAL 2000
 #define LCD_LINES 2
 #define LCD_COLS 24
+
+#define REBOOT_PIN 17
 
 void gpio_put_all_sda_pins(bool value)
 {
@@ -388,6 +390,8 @@ void topMenuPrint(uint32_t menuItem)
         case 1: myLCD.print("<Set Modulator Channels>"); break;
         case 2: myLCD.print("< Switch Channel Bank  >"); break;
         case 3: myLCD.print("<    Save to FLASH     >"); break;
+        case 4: myLCD.print("<    Full Shutdown     >"); break;
+        case 5: myLCD.print("<     Full Reboot      >"); break;
     }
 }
 
@@ -473,6 +477,10 @@ int main() {
     gpio_set_dir(I2C_SDA_PIN_5, GPIO_IN);
     gpio_set_dir(I2C_SDA_PIN_6, GPIO_IN);
     gpio_put_all_sda_pins(0);
+
+    gpio_init(REBOOT_PIN);
+    gpio_set_dir(REBOOT_PIN, GPIO_IN);
+    gpio_set_pulls(REBOOT_PIN, true, false);
 
     // Boot progress indicator used to make it possible to see where it freezes up if it does.
     myLCD.goto_pos(0,1);
@@ -722,7 +730,7 @@ int main() {
                     }
                     else if (menuSelect == 3)
                     {
-                        function = FN_SAVED;
+                        function = FN_COMPLETE;
                         myLCD.goto_pos(0,1);
                         myLCD.print("Saving...               ");
                         uint16_t numberOfSaves = saveFlash(standard, testpattern, currentBank, channels);
@@ -734,13 +742,23 @@ int main() {
                         myLCD.write((numberOfSaves / 10 % 10) + '0');
                         myLCD.write((numberOfSaves % 10) + '0');
                     }
+                    else if (menuSelect == 4 || menuSelect == 5)
+                    {
+                        function = FN_COMPLETE;
+                        myLCD.goto_pos(0,1);
+                        myLCD.print("Sending signal...       ");
+                        gpio_set_dir(REBOOT_PIN, GPIO_OUT);
+                        sleep_ms(menuSelect == 4 ? 3000 : 1000);
+                        myLCD.goto_pos(0,1);
+                        myLCD.print("Signal sent             ");
+                        gpio_set_dir(REBOOT_PIN, GPIO_IN);
+                    }
                     break;
 
-                    case FN_SAVED:
+                    case FN_COMPLETE :
                     function = FN_TOP_MENU;
                     menuSelect = 0;
                     topMenuPrint(menuSelect);
-                    menuSelect = 0;
                     break;
 
                     case FN_CHANNELS:
