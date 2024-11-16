@@ -1,7 +1,13 @@
+/**
+ * @file insertomatic-pico.cpp
+ * @brief Firmware for the Pi Pico in the Insertomatic 6000
+ * Sets the RF channels of the RF modulators
+ * Controls shutdown of the Raspberry Pis
+ * Displays now playing info on the LCD
+ */
+
 #include "pico/stdlib.h"
-
 #include "lcd_display.hpp"
-
 #include "hardware/gpio.h"
 #include "hardware/flash.h"
 #include "pico/time.h"
@@ -82,6 +88,11 @@ const uint8_t *flash_target_contents = (const uint8_t *) (XIP_BASE + FLASH_TARGE
 
 #define REBOOT_PIN 17
 
+/**
+ * @brief Write the same data bit to all the I2C data pins
+ * 
+ * @param value - the data bit
+ */
 void gpio_put_all_sda_pins(bool value)
 {
     gpio_put(I2C_SDA_PIN_1, value);
@@ -92,6 +103,11 @@ void gpio_put_all_sda_pins(bool value)
     gpio_put(I2C_SDA_PIN_6, value);
 }
 
+/**
+ * @brief Set the direction of all the I2C data pins
+ * 
+ * @param out - 1 for output, 0 for input
+ */
 void gpio_set_dir_all_sda_pins(bool out)
 {
     gpio_set_dir(I2C_SDA_PIN_1, out);
@@ -102,7 +118,7 @@ void gpio_set_dir_all_sda_pins(bool out)
     gpio_set_dir(I2C_SDA_PIN_6, out);
 }
 
-// ChatGPT generated section
+// ChatGPT generated section - I2C big-bang functions
 void i2c_delay() {
     sleep_us(I2C_DELAY);
 }
@@ -197,6 +213,12 @@ void i2c_bitbang_write(uint8_t address, uint8_t data[][4], size_t length) {
 
 LCDdisplay myLCD(5,4,3,2,1,0,LCD_COLS,LCD_LINES); // DB4, DB5, DB6, DB7, RS, E, character_width, no_of_lines
 
+/**
+ * @brief Convert and display the channel numbers at the current LCD cursor position
+ * 
+ * @param channels Array of channels - for each channel, bit 7 represents 'C' or 'S' and other bits are the channel number
+ * @return * void 
+ */
 void printChannelNumbers(uint8_t * channels)
 {
     for (int i = 0; i < NO_OF_CHANNELS; i++)
@@ -208,6 +230,12 @@ void printChannelNumbers(uint8_t * channels)
     }
 }
 
+/**
+ * @brief Print labels and values for TV system and test pattern screen
+ * 
+ * @param standard 
+ * @param testpattern 
+ */
 void printSystemTestEnable(uint8_t standard, bool testpattern)
 {
     myLCD.print(" System: ");
@@ -238,6 +266,13 @@ void printSystemTestEnable(uint8_t standard, bool testpattern)
     myLCD.print(testpattern ? "On  " : "Off ");
 }
 
+/**
+ * @brief Parse the modulator setting array into raw data for the modulators then write it over I2C
+ * 
+ * @param channels Array of channel settings
+ * @param standard TV system (one value used for all modulators)
+ * @param testpattern Test pattern enable (one value used for all modulators)
+ */
 void programModulators(uint8_t * channels, uint8_t standard, bool testpattern)
 {
     // Modulator data array
@@ -316,6 +351,11 @@ void programModulators(uint8_t * channels, uint8_t standard, bool testpattern)
     i2c_bitbang_write(I2C_ADDRESS, data, 4);
 }
 
+/**
+ * @brief Decrement channel, skipping the gaps in the channel numbering scheme
+ * 
+ * @param channel 
+ */
 void decrementChannel(uint8_t * channel)
 {
     uint8_t channelNumber = *channel & 0x7f;
@@ -347,6 +387,11 @@ void decrementChannel(uint8_t * channel)
     *channel = (channelBand << 7) | channelNumber;
 }
 
+/**
+ * @brief Increment channel, skipping the gaps in the channel numbering scheme
+ * 
+ * @param channel 
+ */
 void incrementChannel(uint8_t * channel)
 {
     uint8_t channelNumber = *channel & 0x7f;
@@ -452,7 +497,6 @@ int main() {
 	myLCD.init();
     myLCD.clear();
     myLCD.print("   Insertomatic 6000    ");
-    //sleep_ms(2500);
 
     // Initialise the GPIO
     gpio_init_mask((1 << BUTTON_F) | (1 << BUTTON_D) | (1 << BUTTON_U));
@@ -686,6 +730,7 @@ int main() {
             lastmsIdleScreenChange = 0;
         }
 
+        // Sample buttons every BUTTON_INTERVAL for debouncing
         if (to_ms_since_boot(get_absolute_time()) > lastms + BUTTON_INTERVAL)
         {
             lastms = to_ms_since_boot(get_absolute_time());
@@ -694,6 +739,7 @@ int main() {
             bool buttonUState = gpio_get(BUTTON_U);
             bool buttonDState = gpio_get(BUTTON_D);
 
+            // Enter button
             if (!buttonFState && buttonFLast)
             {
                 switch (function)
@@ -798,6 +844,7 @@ int main() {
                 }
             }
 
+            // Up/down buttons
             if (!buttonUState && buttonULast || !buttonDState && buttonDLast)
             {
                 switch (function)
