@@ -1,0 +1,2 @@
+[submodule "lib/pi-pico-LCD"]
+	url = git://github.com/deveon95/pi-pico-LCD.git
